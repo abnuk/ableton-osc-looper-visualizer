@@ -83,12 +83,12 @@ const LooperVisualization: React.FC = () => {
     
     if (titleBar) {
       titleBar.style.backgroundColor = trackColor;
-      // Apply text color to all text elements in title bar
+      // Apply text color to track name
       if (trackName) {
         trackName.style.color = textColor;
       }
-      // Apply to control buttons too
-      const controlButtons = titleBar.querySelectorAll('.control-btn') as NodeListOf<HTMLElement>;
+      // Apply to control buttons (but not close button - it has dark background)
+      const controlButtons = titleBar.querySelectorAll('.control-btn:not(.close-btn)') as NodeListOf<HTMLElement>;
       controlButtons.forEach(btn => {
         btn.style.color = textColor;
       });
