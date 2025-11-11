@@ -13,6 +13,7 @@ export interface LooperInfo {
   trackIndex: number;
   deviceIndex: number;
   trackName: string;
+  trackColor: number; // Ableton track color (integer)
   id: string; // Unique identifier: `${trackIndex}-${deviceIndex}`
 }
 

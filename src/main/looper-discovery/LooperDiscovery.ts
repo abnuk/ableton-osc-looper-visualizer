@@ -29,6 +29,7 @@ export class LooperDiscovery {
                 trackIndex,
                 deviceIndex,
                 trackName: '', // Will be filled below
+                trackColor: 0, // Will be filled below
                 id: `${trackIndex}-${deviceIndex}`,
               });
             }
@@ -38,7 +39,7 @@ export class LooperDiscovery {
         }
       }
 
-      // Get track names for found loopers
+      // Get track names and colors for found loopers
       for (const looper of loopers) {
         try {
           const trackName = await commandBuilder.getTrackName(looper.trackIndex);
@@ -46,6 +47,15 @@ export class LooperDiscovery {
         } catch (error) {
           console.error(`Error getting name for track ${looper.trackIndex}:`, error);
           looper.trackName = `Track ${looper.trackIndex}`;
+        }
+
+        try {
+          const trackColor = await commandBuilder.getTrackColor(looper.trackIndex);
+          looper.trackColor = trackColor;
+          console.log(`Track ${looper.trackIndex} color: ${trackColor}`);
+        } catch (error) {
+          console.error(`Error getting color for track ${looper.trackIndex}:`, error);
+          looper.trackColor = 0; // Default gray color
         }
       }
 

@@ -54,6 +54,7 @@ export class VisualizationWindowManager {
           `--track-name=${looper.trackName}`,
           `--track-index=${looper.trackIndex}`,
           `--device-index=${looper.deviceIndex}`,
+          `--track-color=${looper.trackColor}`,
           `--always-on-top=${windowState.alwaysOnTop}`,
         ],
       },

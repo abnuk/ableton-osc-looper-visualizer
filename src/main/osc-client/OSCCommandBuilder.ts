@@ -44,6 +44,17 @@ export class OSCCommandBuilder {
     return response.args[1] as string;
   }
 
+  // Get track color
+  public async getTrackColor(trackIndex: number): Promise<number> {
+    const response = await this.client.sendAndWaitForResponse(
+      '/live/track/get/color',
+      '/live/track/get/color',
+      5000,
+      trackIndex
+    );
+    return response.args[1] as number;
+  }
+
   // Get device class names for a track
   public async getDeviceClassNames(trackIndex: number): Promise<string[]> {
     const response = await this.client.sendAndWaitForResponse(

@@ -6,6 +6,41 @@ import './styles.css';
 
 const { ipcRenderer } = window.require('electron');
 
+// Convert Ableton color integer to RGB hex string
+function abletonColorToRgb(abletonColor: number): string {
+  // Ableton colors are stored as integers
+  // We need to extract RGB components
+  const r = (abletonColor >> 16) & 0xFF;
+  const g = (abletonColor >> 8) & 0xFF;
+  const b = abletonColor & 0xFF;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+// Calculate relative luminance and return contrasting text color
+// Using WCAG formula for accessibility
+function getContrastTextColor(abletonColor: number): string {
+  const r = (abletonColor >> 16) & 0xFF;
+  const g = (abletonColor >> 8) & 0xFF;
+  const b = abletonColor & 0xFF;
+  
+  // Convert to relative luminance (0-1 range)
+  // First normalize RGB values
+  const rNorm = r / 255;
+  const gNorm = g / 255;
+  const bNorm = b / 255;
+  
+  // Apply gamma correction
+  const rLinear = rNorm <= 0.03928 ? rNorm / 12.92 : Math.pow((rNorm + 0.055) / 1.055, 2.4);
+  const gLinear = gNorm <= 0.03928 ? gNorm / 12.92 : Math.pow((gNorm + 0.055) / 1.055, 2.4);
+  const bLinear = bNorm <= 0.03928 ? bNorm / 12.92 : Math.pow((bNorm + 0.055) / 1.055, 2.4);
+  
+  // Calculate relative luminance using WCAG formula
+  const luminance = 0.2126 * rLinear + 0.7152 * gLinear + 0.0722 * bLinear;
+  
+  // Return black text for light backgrounds, white for dark backgrounds
+  return luminance > 0.5 ? '#000000' : '#ffffff';
+}
+
 // Parse looper info from command line arguments
 function getLooperInfo() {
   const args = process.argv;
@@ -13,9 +48,10 @@ function getLooperInfo() {
   const trackName = args.find(arg => arg.startsWith('--track-name='))?.split('=')[1] || 'Looper';
   const trackIndex = parseInt(args.find(arg => arg.startsWith('--track-index='))?.split('=')[1] || '0');
   const deviceIndex = parseInt(args.find(arg => arg.startsWith('--device-index='))?.split('=')[1] || '0');
+  const trackColor = parseInt(args.find(arg => arg.startsWith('--track-color='))?.split('=')[1] || '0');
   const alwaysOnTop = args.find(arg => arg.startsWith('--always-on-top='))?.split('=')[1] === 'true';
 
-  return { looperId, trackName, trackIndex, deviceIndex, alwaysOnTop };
+  return { looperId, trackName, trackIndex, deviceIndex, trackColor, alwaysOnTop };
 }
 
 const LooperVisualization: React.FC = () => {
@@ -34,6 +70,34 @@ const LooperVisualization: React.FC = () => {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  // Apply track color to title bar and state label
+  useEffect(() => {
+    const trackColor = abletonColorToRgb(looperInfo.trackColor);
+    const textColor = getContrastTextColor(looperInfo.trackColor);
+    
+    // Apply color to title bar and state label
+    const titleBar = document.querySelector('.title-bar') as HTMLElement;
+    const stateLabel = document.querySelector('.state-label') as HTMLElement;
+    const trackName = document.querySelector('.track-name') as HTMLElement;
+    
+    if (titleBar) {
+      titleBar.style.backgroundColor = trackColor;
+      // Apply text color to all text elements in title bar
+      if (trackName) {
+        trackName.style.color = textColor;
+      }
+      // Apply to control buttons too
+      const controlButtons = titleBar.querySelectorAll('.control-btn') as NodeListOf<HTMLElement>;
+      controlButtons.forEach(btn => {
+        btn.style.color = textColor;
+      });
+    }
+    if (stateLabel) {
+      stateLabel.style.backgroundColor = trackColor;
+      stateLabel.style.color = textColor;
+    }
+  }, [looperInfo.trackColor]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
