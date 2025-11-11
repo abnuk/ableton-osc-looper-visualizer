@@ -13,8 +13,9 @@ function getLooperInfo() {
   const trackName = args.find(arg => arg.startsWith('--track-name='))?.split('=')[1] || 'Looper';
   const trackIndex = parseInt(args.find(arg => arg.startsWith('--track-index='))?.split('=')[1] || '0');
   const deviceIndex = parseInt(args.find(arg => arg.startsWith('--device-index='))?.split('=')[1] || '0');
+  const alwaysOnTop = args.find(arg => arg.startsWith('--always-on-top='))?.split('=')[1] === 'true';
 
-  return { looperId, trackName, trackIndex, deviceIndex };
+  return { looperId, trackName, trackIndex, deviceIndex, alwaysOnTop };
 }
 
 const LooperVisualization: React.FC = () => {
@@ -24,7 +25,7 @@ const LooperVisualization: React.FC = () => {
   
   const [looperInfo] = useState(getLooperInfo());
   const [state, setState] = useState<LooperState>(LooperState.EMPTY);
-  const [alwaysOnTop, setAlwaysOnTop] = useState(false);
+  const [alwaysOnTop, setAlwaysOnTop] = useState(looperInfo.alwaysOnTop); // Initialize from saved state
   
   // Use ref to hold current state for animation callback
   const stateRef = useRef<LooperState>(state);
