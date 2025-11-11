@@ -228,3 +228,132 @@
   color: #999;
 }
 
+/* Clip Selector Styles */
+.clip-selector-container {
+  margin-top: 16px;
+}
+
+.clip-selection-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+/* Custom select styling */
+.form-group select {
+  width: 100%;
+  padding: 10px 32px 10px 12px;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  color: #e0e0e0;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23999' d='M1.41 0L6 4.58 10.59 0 12 1.41l-6 6-6-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+}
+
+.form-group select:hover {
+  border-color: #4a4a4a;
+  background-color: #222;
+}
+
+.form-group select:focus {
+  outline: none;
+  border-color: #ff764d;
+  background-color: #222;
+}
+
+.form-group select option {
+  background: #1a1a1a;
+  color: #e0e0e0;
+  padding: 10px;
+}
+
+/* Selected Clips List */
+.selected-clips-list {
+  margin-top: 8px;
+}
+
+.selected-clips-list h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 12px;
+  color: #999;
+}
+
+.clip-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.clip-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  background: #1a1a1a;
+  border: 2px solid #3a3a3a;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.clip-item:hover {
+  border-color: #4a4a4a;
+  background: #222;
+}
+
+.clip-info {
+  flex: 1;
+}
+
+.clip-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.clip-details {
+  font-size: 12px;
+  color: #999;
+}
+
+.btn-remove {
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  padding: 0;
+  background: #3a3a3a;
+  color: #e0e0e0;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.btn-remove:hover {
+  background: #ff4444;
+  color: #fff;
+}
+
