@@ -117,8 +117,8 @@ const LooperVisualization: React.FC = () => {
       if (trackName) {
         trackName.style.color = textColor;
       }
-      // Apply to control buttons (but not close button - it has dark background)
-      const controlButtons = titleBar.querySelectorAll('.control-btn:not(.close-btn)') as NodeListOf<HTMLElement>;
+      // Apply to control buttons (but not close button and duplicate button - they should stay white)
+      const controlButtons = titleBar.querySelectorAll('.control-btn:not(.close-btn):not(.duplicate-btn)') as NodeListOf<HTMLElement>;
       controlButtons.forEach(btn => {
         btn.style.color = textColor;
       });
@@ -227,7 +227,7 @@ const LooperVisualization: React.FC = () => {
             📌
           </button>
           <button
-            className="control-btn"
+            className="control-btn duplicate-btn"
             onClick={handleDuplicateWindow}
             title="Duplicate Window"
           >

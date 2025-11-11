@@ -59,6 +59,14 @@
   color: #fff;
 }
 
+.control-btn.duplicate-btn {
+  color: #fff;
+}
+
+.control-btn.close-btn {
+  color: #fff;
+}
+
 .control-btn.close-btn:hover {
   background: #ff4444;
   color: #fff;
