@@ -29,17 +29,43 @@ export class TrayManager {
   }
 
   private createTrayIcon(): NativeImage {
-    // Create a simple template icon for macOS
-    // Template icons are monochrome and adapt to light/dark mode
-    // For a production app, use proper icon files in assets/
+    // Create a simple 16x16 icon with a circle - template style for macOS
+    // Using raw RGBA buffer to draw a filled circle
+    const size = 16;
+    const canvas = Buffer.alloc(size * size * 4);
     
-    // Create a 16x16 PNG with a simple circle design
-    const iconData = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAOxAAADsQBlSsOGwAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAAFJSURBVDiNpZMxTsNAEEVnbCe2kxBCQoEEBR0lF+AKXIArgBQKCgoKLkABBQUSEhISEhISEiKROMnac1jbGAwkQbxqV7Mz7/3Z2dU/RURQVTyfz2g2m+h0OjgcDtB1HYZhYLfbYb1eY7VaodfrYTgcwvM8EBEAYFVV1el0qu12W+V5ruq6Vr7vq8PhoDB4nucKgEJVVTabjcpisfg1wHEc5bquCoLgZ4AoinC9XrHf72FZFizLguu6sG0bhmEgDEPcbjecTidcLhdcr1dYloXRaATXdaHrOgRARGg0GhiPx5hMJphOp5jNZpjP51itVlgsFhiNRuj3+xiGYQiAiGC323F5vd7p+Xzm8/kkxpg4jqfL5ZJOp1N6Pp/peDzydrvlfD6n5XJJy+WSXq8XnU4neh/v9zudzycxxtRqtdLhcKBfnufZb7fb3W+3W/Z/3wB+Rt/X9QAAAABJRU5ErkJggg==',
-      'base64'
-    );
+    // Draw a simple filled circle in the center
+    const centerX = size / 2;
+    const centerY = size / 2;
+    const radius = 5;
     
-    const icon = nativeImage.createFromBuffer(iconData);
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const dx = x - centerX;
+        const dy = y - centerY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        const index = (y * size + x) * 4;
+        if (distance <= radius) {
+          // White circle (will be inverted in template mode)
+          canvas[index] = 255;     // R
+          canvas[index + 1] = 255; // G
+          canvas[index + 2] = 255; // B
+          canvas[index + 3] = 255; // A
+        } else {
+          // Transparent
+          canvas[index] = 0;
+          canvas[index + 1] = 0;
+          canvas[index + 2] = 0;
+          canvas[index + 3] = 0;
+        }
+      }
+    }
+    
+    const icon = nativeImage.createFromBuffer(canvas, {
+      width: size,
+      height: size,
+    });
     icon.setTemplateImage(true); // Use template mode on macOS
     return icon;
   }
@@ -97,4 +123,3 @@ export class TrayManager {
     }
   }
 }
-
