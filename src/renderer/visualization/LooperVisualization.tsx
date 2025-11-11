@@ -210,6 +210,10 @@ const LooperVisualization: React.FC = () => {
     ipcRenderer.invoke('set-always-on-top', itemInfo.itemId, newValue);
   };
 
+  const handleDuplicateWindow = () => {
+    ipcRenderer.invoke('duplicate-window', itemInfo.itemId);
+  };
+
   return (
     <div className="visualization-window">
       <div className="title-bar">
@@ -221,6 +225,13 @@ const LooperVisualization: React.FC = () => {
             title="Always on Top"
           >
             📌
+          </button>
+          <button
+            className="control-btn"
+            onClick={handleDuplicateWindow}
+            title="Duplicate Window"
+          >
+            ⧉
           </button>
           <button
             className="control-btn close-btn"

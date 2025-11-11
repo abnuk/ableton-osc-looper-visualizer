@@ -200,6 +200,19 @@ function setupIPCHandlers() {
     visualizationWindowManager.setAlwaysOnTop(itemId, alwaysOnTop);
     return true;
   });
+
+  // Duplicate visualization window
+  ipcMain.handle('duplicate-window', async (_event, itemId: string) => {
+    const duplicatedWindow = visualizationWindowManager.duplicateWindow(itemId);
+    
+    if (duplicatedWindow) {
+      // The duplicate window will automatically receive state updates
+      // because the state managers broadcast to all windows matching the original item ID pattern
+      return true;
+    }
+    
+    return false;
+  });
 }
 
 app.whenReady().then(() => {

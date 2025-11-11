@@ -333,12 +333,6 @@ export class ClipStateManager {
         monitored.pendingUpdates = {};
       }
 
-      const window = this.windowManager.getWindow(clipId);
-      if (!window) {
-        console.warn(`⚠️ Window not found for clip ${clipId}`);
-        continue;
-      }
-
       const stateData: MonitoredItemStateData = {
         itemId: clipId,
         type: MonitoredItemType.CLIP,
@@ -348,8 +342,30 @@ export class ClipStateManager {
         hasPosition: true, // Clips have position data
       };
 
-      // Send state update to the visualization window
-      window.webContents.send('item-state-update', stateData);
+      // Send state update to ALL windows (original and duplicates)
+      // This allows duplicate windows to receive the same state updates
+      const allWindows = this.windowManager.getAllWindows();
+      let sentToWindows = 0;
+      
+      for (const [windowId, window] of allWindows) {
+        // Send to the original window
+        if (windowId === clipId) {
+          window.webContents.send('item-state-update', stateData);
+          sentToWindows++;
+        }
+        // Also send to duplicate windows (they have IDs like "originalId-dup-...")
+        else if (windowId.startsWith(`${clipId}-dup-`)) {
+          // For duplicate windows, we need to send with the duplicate's ID
+          // so the window knows this update is for it
+          const duplicateStateData = { ...stateData, itemId: windowId };
+          window.webContents.send('item-state-update', duplicateStateData);
+          sentToWindows++;
+        }
+      }
+      
+      if (sentToWindows === 0) {
+        console.warn(`⚠️ No windows found for clip ${clipId}`);
+      }
     }
   }
 }

@@ -166,12 +166,6 @@ export class LooperStateManager {
 
   private updateVisualizationWindows(): void {
     for (const [looperId, monitored] of this.monitoredLoopers) {
-      const window = this.windowManager.getWindow(looperId);
-      if (!window) {
-        console.warn(`⚠️ Window not found for looper ${looperId}`);
-        continue;
-      }
-
       const stateData: LooperStateData = {
         looperId,
         state: monitored.stateMachine.getLooperState(),
@@ -180,8 +174,30 @@ export class LooperStateManager {
         isQuantized: monitored.stateMachine.getStateData().isQuantized || true,
       };
 
-      // Send state update to the visualization window
-      window.webContents.send('looper-state-update', stateData);
+      // Send state update to ALL windows (original and duplicates)
+      // This allows duplicate windows to receive the same state updates
+      const allWindows = this.windowManager.getAllWindows();
+      let sentToWindows = 0;
+      
+      for (const [windowId, window] of allWindows) {
+        // Send to the original window
+        if (windowId === looperId) {
+          window.webContents.send('looper-state-update', stateData);
+          sentToWindows++;
+        }
+        // Also send to duplicate windows (they have IDs like "originalId-dup-...")
+        else if (windowId.startsWith(`${looperId}-dup-`)) {
+          // For duplicate windows, we need to send with the duplicate's ID
+          // so the window knows this update is for it
+          const duplicateStateData = { ...stateData, looperId: windowId };
+          window.webContents.send('looper-state-update', duplicateStateData);
+          sentToWindows++;
+        }
+      }
+      
+      if (sentToWindows === 0) {
+        console.warn(`⚠️ No windows found for looper ${looperId}`);
+      }
     }
   }
 

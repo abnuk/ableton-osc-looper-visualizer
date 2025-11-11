@@ -13,10 +13,16 @@ interface WindowState {
   alwaysOnTop: boolean;
 }
 
+interface WindowInfo {
+  window: BrowserWindow;
+  item: MonitoredItem;
+  itemType: MonitoredItemType;
+}
+
 type MonitoredItem = LooperInfo | ClipInfo;
 
 export class VisualizationWindowManager {
-  private windows: Map<string, BrowserWindow> = new Map();
+  private windows: Map<string, WindowInfo> = new Map();
   private store: Store;
 
   constructor() {
@@ -32,11 +38,11 @@ export class VisualizationWindowManager {
     
     console.log(`🪟 Creating visualization window for ${displayName} (${itemId})`);
     
-    const existingWindow = this.windows.get(itemId);
-    if (existingWindow) {
+    const existingWindowInfo = this.windows.get(itemId);
+    if (existingWindowInfo) {
       console.log(`⚠️ Window already exists for ${itemId}, focusing...`);
-      existingWindow.focus();
-      return existingWindow;
+      existingWindowInfo.window.focus();
+      return existingWindowInfo.window;
     }
 
     // Load saved window state or use defaults
@@ -68,7 +74,7 @@ export class VisualizationWindowManager {
       skipTaskbar: false, // Keep in taskbar/dock
       ...(process.platform === 'darwin' ? {
         // macOS specific: explicitly hide traffic lights
-        titleBarStyle: 'customButtonsOnHover' as any,
+        titleBarStyle: 'customButtonsOnHover' as const,
         trafficLightPosition: { x: -200, y: -200 }, // Move traffic lights off-screen
       } : {}),
     });
@@ -116,7 +122,7 @@ export class VisualizationWindowManager {
       this.windows.delete(itemId);
     });
 
-    this.windows.set(itemId, window);
+    this.windows.set(itemId, { window, item, itemType });
     console.log(`✅ Visualization window created successfully for ${displayName}`);
     return window;
   }
@@ -154,32 +160,36 @@ export class VisualizationWindowManager {
   }
 
   public getWindow(itemId: string): BrowserWindow | undefined {
-    return this.windows.get(itemId);
+    return this.windows.get(itemId)?.window;
   }
 
   public getAllWindows(): Map<string, BrowserWindow> {
-    return this.windows;
+    const result = new Map<string, BrowserWindow>();
+    for (const [id, info] of this.windows) {
+      result.set(id, info.window);
+    }
+    return result;
   }
 
   public closeWindow(itemId: string): void {
-    const window = this.windows.get(itemId);
-    if (window) {
-      window.close();
+    const windowInfo = this.windows.get(itemId);
+    if (windowInfo) {
+      windowInfo.window.close();
     }
   }
 
   public closeAllWindows(): void {
-    this.windows.forEach(window => window.close());
+    this.windows.forEach(info => info.window.close());
     this.windows.clear();
   }
 
   public setAlwaysOnTop(itemId: string, alwaysOnTop: boolean): void {
-    const window = this.windows.get(itemId);
-    if (window) {
-      window.setAlwaysOnTop(alwaysOnTop);
+    const windowInfo = this.windows.get(itemId);
+    if (windowInfo) {
+      windowInfo.window.setAlwaysOnTop(alwaysOnTop);
       
       // Save the state immediately
-      const bounds = window.getBounds();
+      const bounds = windowInfo.window.getBounds();
       const state: WindowState = {
         x: bounds.x,
         y: bounds.y,
@@ -189,6 +199,124 @@ export class VisualizationWindowManager {
       };
       this.store.set(`window-${itemId}`, state);
     }
+  }
+
+  // Duplicate a window - creates a new window with a unique ID but same data
+  public duplicateWindow(originalItemId: string): BrowserWindow | null {
+    const originalWindowInfo = this.windows.get(originalItemId);
+    if (!originalWindowInfo) {
+      console.log(`⚠️ Cannot duplicate: window ${originalItemId} not found`);
+      return null;
+    }
+
+    const originalWindow = originalWindowInfo.window;
+    const originalItem = originalWindowInfo.item;
+    const itemType = originalWindowInfo.itemType;
+
+    // Create a duplicate ID by appending a timestamp and random number
+    const duplicateId = `${originalItemId}-dup-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+    // Recreate the item object with the new ID
+    let item: MonitoredItem;
+    if (itemType === MonitoredItemType.CLIP) {
+      const clipItem = originalItem as ClipInfo;
+      item = {
+        id: duplicateId,
+        trackName: clipItem.trackName,
+        trackIndex: clipItem.trackIndex,
+        trackColor: clipItem.trackColor,
+        clipIndex: clipItem.clipIndex,
+      } as ClipInfo;
+    } else {
+      const looperItem = originalItem as LooperInfo;
+      item = {
+        id: duplicateId,
+        trackName: looperItem.trackName,
+        trackIndex: looperItem.trackIndex,
+        trackColor: looperItem.trackColor,
+        deviceIndex: looperItem.deviceIndex,
+      } as LooperInfo;
+    }
+
+    console.log(`🪟 Creating duplicate window for ${originalItemId} -> ${duplicateId}`);
+
+    // Get the bounds of the original window and offset the duplicate
+    const originalBounds = originalWindow.getBounds();
+    const savedState = this.store.get(`window-${originalItemId}`) as WindowState | undefined;
+    
+    const windowState: WindowState = {
+      x: originalBounds.x + 30, // Offset by 30 pixels
+      y: originalBounds.y + 30,
+      width: originalBounds.width,
+      height: originalBounds.height,
+      alwaysOnTop: savedState?.alwaysOnTop || originalWindow.isAlwaysOnTop(),
+    };
+
+    const displayName = this.getDisplayName(item, itemType);
+    const window = new BrowserWindow({
+      x: windowState.x,
+      y: windowState.y,
+      width: windowState.width,
+      height: windowState.height,
+      minWidth: 150,
+      minHeight: 150,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+        additionalArguments: this.buildCommandLineArgs(item, itemType, windowState.alwaysOnTop),
+      },
+      backgroundColor: '#1a1a1a',
+      frame: false,
+      transparent: false,
+      hasShadow: true,
+      title: displayName,
+      alwaysOnTop: windowState.alwaysOnTop,
+      skipTaskbar: false,
+      ...(process.platform === 'darwin' ? {
+        titleBarStyle: 'customButtonsOnHover' as const,
+        trafficLightPosition: { x: -200, y: -200 },
+      } : {}),
+    });
+
+    // Set aspect ratio
+    const titleBarHeight = 40;
+    const stateLabelHeight = 29;
+    const extraHeight = titleBarHeight + stateLabelHeight;
+    const aspectRatio = windowState.width / (windowState.width + extraHeight);
+    window.setAspectRatio(aspectRatio);
+
+    if (process.env.NODE_ENV === 'development') {
+      window.loadURL('http://localhost:3000/visualization.html');
+    } else {
+      const htmlPath = path.join(__dirname, '../renderer/visualization.html');
+      window.loadFile(htmlPath);
+    }
+
+    // Save window state on move or resize
+    const saveWindowState = () => {
+      const bounds = window.getBounds();
+      const state: WindowState = {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+        alwaysOnTop: window.isAlwaysOnTop(),
+      };
+      this.store.set(`window-${duplicateId}`, state);
+    };
+
+    window.on('move', saveWindowState);
+    window.on('resize', saveWindowState);
+
+    window.on('closed', () => {
+      console.log(`🗑️ Duplicate visualization window closed for ${duplicateId}`);
+      this.windows.delete(duplicateId);
+    });
+
+    this.windows.set(duplicateId, { window, item, itemType });
+    console.log(`✅ Duplicate visualization window created successfully for ${displayName}`);
+    
+    return window;
   }
 }
 
