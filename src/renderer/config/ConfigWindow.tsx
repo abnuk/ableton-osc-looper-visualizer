@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { DEFAULT_CONFIG } from '../../shared/types/AppConfig';
 import LooperList from './LooperList';
+import ClipSelector from './ClipSelector';
 import './styles.css';
 
 const { ipcRenderer } = window.require('electron');
@@ -166,7 +167,12 @@ const ConfigWindow: React.FC = () => {
           )}
         </div>
 
-        {showLooperList && connectionStatus.connected && <LooperList />}
+        {showLooperList && connectionStatus.connected && (
+          <>
+            <LooperList />
+            <ClipSelector />
+          </>
+        )}
       </div>
     </div>
   );

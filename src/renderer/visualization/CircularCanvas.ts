@@ -1,4 +1,5 @@
 import { LooperState } from '../../shared/types/LooperState';
+import { MonitoredItemState } from '../../shared/types/MonitoredItem';
 
 export interface CircularCanvasConfig {
   centerX: number;
@@ -7,21 +8,38 @@ export interface CircularCanvasConfig {
   lineWidth: number;
 }
 
+export interface RenderOptions {
+  position?: number; // 0.0 to 1.0 for clip progress
+  hasPosition: boolean; // Whether to show position-based progress
+}
+
 export class CircularCanvas {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private animationFrameId: number | null = null;
 
-  // Colors for different states
+  // Colors for different states (unified for both loopers and clips)
   private readonly colors = {
-    [LooperState.EMPTY]: '#666666',
-    [LooperState.STOPPED]: '#666666',
-    [LooperState.ARMED_RECORDING]: '#ff4444',
-    [LooperState.RECORDING]: '#ff4444',
-    [LooperState.ARMED_STOPPING]: '#ff8844',
-    [LooperState.PLAYING]: '#44ff44',
-    [LooperState.ARMED_OVERDUB]: '#ffcc00',
-    [LooperState.OVERDUBBING]: '#ffcc00',
+    [MonitoredItemState.EMPTY]: '#999999', // Lighter gray for empty state
+    [MonitoredItemState.STOPPED]: '#666666',
+    [MonitoredItemState.ARMED_RECORDING]: '#ff4444',
+    [MonitoredItemState.RECORDING]: '#ff4444',
+    [MonitoredItemState.ARMED_STOPPING]: '#ff8844',
+    [MonitoredItemState.PLAYING]: '#44ff44',
+    [MonitoredItemState.ARMED_OVERDUB]: '#ffcc00',
+    [MonitoredItemState.OVERDUBBING]: '#ffcc00',
+  };
+
+  // Backward compatibility: map LooperState to MonitoredItemState
+  private readonly looperStateMap: { [key in LooperState]: MonitoredItemState } = {
+    [LooperState.EMPTY]: MonitoredItemState.EMPTY,
+    [LooperState.STOPPED]: MonitoredItemState.STOPPED,
+    [LooperState.ARMED_RECORDING]: MonitoredItemState.ARMED_RECORDING,
+    [LooperState.RECORDING]: MonitoredItemState.RECORDING,
+    [LooperState.ARMED_STOPPING]: MonitoredItemState.ARMED_STOPPING,
+    [LooperState.PLAYING]: MonitoredItemState.PLAYING,
+    [LooperState.ARMED_OVERDUB]: MonitoredItemState.ARMED_OVERDUB,
+    [LooperState.OVERDUBBING]: MonitoredItemState.OVERDUBBING,
   };
 
   constructor(canvas: HTMLCanvasElement) {
@@ -41,7 +59,17 @@ export class CircularCanvas {
     this.ctx.scale(dpr, dpr);
   }
 
-  public render(state: LooperState, timestamp: DOMHighResTimeStamp): void {
+  // Main render method (supports both looper and unified states)
+  public render(
+    state: LooperState | MonitoredItemState,
+    timestamp: DOMHighResTimeStamp,
+    options: RenderOptions = { hasPosition: false }
+  ): void {
+    // Convert LooperState to MonitoredItemState if needed
+    const unifiedState = typeof state === 'string' && state in this.looperStateMap
+      ? this.looperStateMap[state as LooperState]
+      : state as MonitoredItemState;
+
     // Clear canvas
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
@@ -58,11 +86,23 @@ export class CircularCanvas {
       lineWidth: size * 0.08,
     };
 
-    // Render based on state
+    // Render based on state (order matters - last rendered is on top)
     this.renderBackgroundCircle(config);
-    this.renderPulsingGlow(config, state, timestamp); // Pulsing glow effect
-    this.renderStateCircle(config, state); // Main state circle
-    this.renderCenterIcon(config, state);
+    
+    // Render glow BEFORE progress fill so it's underneath
+    this.renderPulsingGlow(config, unifiedState, timestamp);
+    
+    // Render position-based progress fill for clips if applicable
+    if (options.hasPosition && options.position !== undefined && unifiedState === MonitoredItemState.PLAYING) {
+      this.renderProgressFill(config, options.position);
+    }
+    
+    // For clips with position, don't render the full state circle (it would cover the progress)
+    if (!options.hasPosition || unifiedState !== MonitoredItemState.PLAYING) {
+      this.renderStateCircle(config, unifiedState); // Main state circle
+    }
+    
+    this.renderCenterIcon(config, unifiedState);
   }
 
   private renderBackgroundCircle(config: CircularCanvasConfig): void {
@@ -73,21 +113,54 @@ export class CircularCanvas {
     this.ctx.stroke();
   }
 
+  /**
+   * Render position-based progress fill for clips
+   * Position 0.0 = starting, 1.0 = completed full cycle
+   */
+  private renderProgressFill(config: CircularCanvasConfig, position: number): void {
+    // Normalize position to 0-1 range
+    const normalizedPosition = position % 1.0;
+    
+    // Start angle at top (12 o'clock = -90 degrees = -PI/2)
+    const startAngle = -Math.PI / 2;
+    const endAngle = startAngle + (normalizedPosition * 2 * Math.PI);
+
+    // Draw remaining portion (dark murky green) first so it's behind
+    if (normalizedPosition < 1.0) {
+      this.ctx.beginPath();
+      this.ctx.arc(config.centerX, config.centerY, config.radius, endAngle, startAngle + Math.PI * 2);
+      this.ctx.strokeStyle = '#2d4a2d'; // Dark murky green for remaining (not yet played)
+      this.ctx.lineWidth = config.lineWidth;
+      this.ctx.stroke();
+    }
+
+    // Draw completed portion (bright green) on top
+    if (normalizedPosition > 0) {
+      this.ctx.beginPath();
+      this.ctx.arc(config.centerX, config.centerY, config.radius, startAngle, endAngle);
+      this.ctx.strokeStyle = '#00ff00'; // Bright green for completed (already played)
+      this.ctx.lineWidth = config.lineWidth;
+      this.ctx.stroke();
+    }
+  }
+
   private renderPulsingGlow(
     config: CircularCanvasConfig,
-    state: LooperState,
+    state: MonitoredItemState,
     timestamp: number
   ): void {
     // Add very subtle pulsing glow for RECORDING and PLAYING states
     if (
-      state === LooperState.RECORDING ||
-      state === LooperState.PLAYING ||
-      state === LooperState.OVERDUBBING
+      state === MonitoredItemState.RECORDING ||
+      state === MonitoredItemState.PLAYING ||
+      state === MonitoredItemState.OVERDUBBING
     ) {
       const color = this.colors[state] || '#666666';
       const pulseSpeed = 1.0; // Hz - slow gentle pulse
       const pulse = Math.sin(timestamp * 0.001 * Math.PI * 2 * pulseSpeed);
       const glowAlpha = 0.05 + (pulse * 0.08); // Very subtle glow (0.05 to 0.13)
+      
+      // Glow should extend beyond the main circle
       const glowRadius = config.radius + config.lineWidth * 0.6;
 
       // Render outer glow
@@ -101,13 +174,13 @@ export class CircularCanvas {
 
   private renderStateCircle(
     config: CircularCanvasConfig,
-    state: LooperState
+    state: MonitoredItemState
   ): void {
     let color = this.colors[state];
 
     // Fallback color if state is not mapped
     if (!color) {
-      console.warn(`⚠️ No color defined for state: ${LooperState[state]} (${state}), using default gray`);
+      console.warn(`⚠️ No color defined for state: ${MonitoredItemState[state]} (${state}), using default gray`);
       color = '#666666';
     }
 
@@ -115,7 +188,7 @@ export class CircularCanvas {
     this.ctx.beginPath();
     this.ctx.arc(config.centerX, config.centerY, config.radius, 0, Math.PI * 2);
     
-    if (state === LooperState.STOPPED || state === LooperState.EMPTY) {
+    if (state === MonitoredItemState.STOPPED || state === MonitoredItemState.EMPTY) {
       // Dim circle for stopped/empty
       this.ctx.strokeStyle = this.withAlpha(color, 0.4);
       this.ctx.lineWidth = config.lineWidth * 0.6;
@@ -128,14 +201,13 @@ export class CircularCanvas {
     this.ctx.stroke();
   }
 
-
-  private renderCenterIcon(config: CircularCanvasConfig, state: LooperState): void {
+  private renderCenterIcon(config: CircularCanvasConfig, state: MonitoredItemState): void {
     const iconSize = config.radius * 0.4;
     this.ctx.fillStyle = '#ffffff';
     this.ctx.strokeStyle = '#ffffff';
     this.ctx.lineWidth = 3;
 
-    if (state === LooperState.PLAYING) {
+    if (state === MonitoredItemState.PLAYING) {
       // Play triangle
       this.ctx.beginPath();
       this.ctx.moveTo(config.centerX - iconSize * 0.3, config.centerY - iconSize * 0.5);
@@ -143,13 +215,13 @@ export class CircularCanvas {
       this.ctx.lineTo(config.centerX + iconSize * 0.5, config.centerY);
       this.ctx.closePath();
       this.ctx.fill();
-    } else if (state === LooperState.RECORDING || state === LooperState.ARMED_RECORDING) {
+    } else if (state === MonitoredItemState.RECORDING || state === MonitoredItemState.ARMED_RECORDING) {
       // Record circle
       this.ctx.beginPath();
       this.ctx.arc(config.centerX, config.centerY, iconSize * 0.4, 0, Math.PI * 2);
       this.ctx.fillStyle = '#ff4444';
       this.ctx.fill();
-    } else if (state === LooperState.OVERDUBBING || state === LooperState.ARMED_OVERDUB) {
+    } else if (state === MonitoredItemState.OVERDUBBING || state === MonitoredItemState.ARMED_OVERDUB) {
       // Overdub double circle
       this.ctx.beginPath();
       this.ctx.arc(config.centerX, config.centerY, iconSize * 0.4, 0, Math.PI * 2);
@@ -158,7 +230,7 @@ export class CircularCanvas {
       this.ctx.arc(config.centerX, config.centerY, iconSize * 0.25, 0, Math.PI * 2);
       this.ctx.fillStyle = '#ffcc00';
       this.ctx.fill();
-    } else if (state === LooperState.STOPPED || state === LooperState.ARMED_STOPPING) {
+    } else if (state === MonitoredItemState.STOPPED || state === MonitoredItemState.ARMED_STOPPING) {
       // Stop square
       const squareSize = iconSize * 0.6;
       this.ctx.fillRect(
@@ -168,6 +240,7 @@ export class CircularCanvas {
         squareSize
       );
     }
+    // No icon for EMPTY state - just show the lighter gray circle
   }
 
   private withAlpha(color: string, alpha: number): string {

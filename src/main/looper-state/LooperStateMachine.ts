@@ -1,9 +1,8 @@
-import { LooperState, LooperStateData } from '../../shared/types/LooperState';
+import { LooperState, LooperStateData, looperStateToMonitoredState } from '../../shared/types/LooperState';
+import { BaseStateMachine } from '../state-management/BaseStateMachine';
 
-export class LooperStateMachine {
-  private currentState: LooperState = LooperState.EMPTY;
-  private position: number = 0;
-  private loopLength: number = 0;
+export class LooperStateMachine extends BaseStateMachine {
+  private looperState: LooperState = LooperState.EMPTY;
   private isQuantized: boolean = true;
 
   // Common parameter names found in Ableton Looper
@@ -18,10 +17,12 @@ export class LooperStateMachine {
     }
 
     // Try to detect state from various parameter combinations
-    const newState = this.detectState(params);
-    if (newState !== this.currentState) {
-      console.log(`🎯 State changed: ${LooperState[this.currentState]} -> ${LooperState[newState]}`);
-      this.currentState = newState;
+    const newLooperState = this.detectLooperState(params);
+    if (newLooperState !== this.looperState) {
+      console.log(`🎯 State changed: ${LooperState[this.looperState]} -> ${LooperState[newLooperState]}`);
+      this.looperState = newLooperState;
+      // Update the base class state
+      this.currentState = looperStateToMonitoredState(newLooperState);
       changed = true;
     }
 
@@ -37,8 +38,8 @@ export class LooperStateMachine {
     // Update loop length if available
     if ('Length' in params) {
       const newLength = params['Length'];
-      if (typeof newLength === 'number' && Math.abs(newLength - this.loopLength) > 0.01) {
-        this.loopLength = newLength;
+      if (typeof newLength === 'number' && Math.abs(newLength - this.length) > 0.01) {
+        this.length = newLength;
         changed = true;
       }
     }
@@ -46,7 +47,14 @@ export class LooperStateMachine {
     return changed;
   }
 
-  private detectState(params: { [key: string]: number | string }): LooperState {
+  /**
+   * Implementation of abstract updateState method
+   */
+  public updateState(params: { [key: string]: number | string }): boolean {
+    return this.updateFromParameters(params);
+  }
+
+  private detectLooperState(params: { [key: string]: number | string }): LooperState {
     // Simplified state detection based on what Looper actually provides
     // No ARMED states - Looper doesn't expose this information
     // No EMPTY vs STOPPED distinction - we don't know if loop has content
@@ -92,15 +100,15 @@ export class LooperStateMachine {
     return LooperState.STOPPED;
   }
 
-  public getState(): LooperState {
-    return this.currentState;
+  public getLooperState(): LooperState {
+    return this.looperState;
   }
 
   public getStateData(): Partial<LooperStateData> {
     return {
-      state: this.currentState,
+      state: this.looperState,
       position: this.position,
-      loopLength: this.loopLength,
+      loopLength: this.length,
       isQuantized: this.isQuantized,
     };
   }
@@ -110,11 +118,12 @@ export class LooperStateMachine {
   }
 
   public updateLoopLength(length: number): void {
-    this.loopLength = length;
+    this.length = length;
   }
 
-  public setState(state: LooperState): void {
-    this.currentState = state;
+  public setLooperState(state: LooperState): void {
+    this.looperState = state;
+    this.currentState = looperStateToMonitoredState(state);
   }
 }
 

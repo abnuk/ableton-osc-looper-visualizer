@@ -193,5 +193,153 @@ export class OSCCommandBuilder {
     // Note: We don't remove the listener here because it's filtered by parameters
     // In a production app, we'd want better listener management
   }
+
+  // ===== CLIP METHODS =====
+
+  // Get number of scenes
+  public async getNumScenes(): Promise<number> {
+    const response = await this.client.sendAndWaitForResponse(
+      OSCCommands.GET_NUM_SCENES,
+      OSCCommands.GET_NUM_SCENES,
+      5000
+    );
+    return response.args[0] as number;
+  }
+
+  // Check if clip slot has a clip
+  public async hasClip(trackIndex: number, clipIndex: number): Promise<boolean> {
+    const response = await this.client.sendAndWaitForResponse(
+      OSCCommands.GET_HAS_CLIP,
+      OSCCommands.GET_HAS_CLIP,
+      5000,
+      trackIndex,
+      clipIndex
+    );
+    // Response format: [trackIndex, clipIndex, hasClip]
+    return Boolean(response.args[2]);
+  }
+
+  // Check if clip is playing
+  public async getClipIsPlaying(trackIndex: number, clipIndex: number): Promise<boolean> {
+    const response = await this.client.sendAndWaitForResponse(
+      OSCCommands.GET_CLIP_IS_PLAYING,
+      OSCCommands.GET_CLIP_IS_PLAYING,
+      5000,
+      trackIndex,
+      clipIndex
+    );
+    // Response format: [trackIndex, clipIndex, isPlaying]
+    return Boolean(response.args[2]);
+  }
+
+  // Check if clip is recording
+  public async getClipIsRecording(trackIndex: number, clipIndex: number): Promise<boolean> {
+    const response = await this.client.sendAndWaitForResponse(
+      OSCCommands.GET_CLIP_IS_RECORDING,
+      OSCCommands.GET_CLIP_IS_RECORDING,
+      5000,
+      trackIndex,
+      clipIndex
+    );
+    // Response format: [trackIndex, clipIndex, isRecording]
+    return Boolean(response.args[2]);
+  }
+
+  // Get clip playing position (0.0 to 1.0+)
+  public async getClipPlayingPosition(trackIndex: number, clipIndex: number): Promise<number> {
+    const response = await this.client.sendAndWaitForResponse(
+      OSCCommands.GET_CLIP_PLAYING_POSITION,
+      OSCCommands.GET_CLIP_PLAYING_POSITION,
+      5000,
+      trackIndex,
+      clipIndex
+    );
+    // Response format: [trackIndex, clipIndex, position]
+    return response.args[2] as number;
+  }
+
+  // Get clip length
+  public async getClipLength(trackIndex: number, clipIndex: number): Promise<number> {
+    const response = await this.client.sendAndWaitForResponse(
+      OSCCommands.GET_CLIP_LENGTH,
+      OSCCommands.GET_CLIP_LENGTH,
+      5000,
+      trackIndex,
+      clipIndex
+    );
+    // Response format: [trackIndex, clipIndex, length]
+    return response.args[2] as number;
+  }
+
+  // Start listening to clip property
+  public startListenClipProperty(
+    trackIndex: number,
+    clipIndex: number,
+    property: 'is_playing' | 'is_recording' | 'playing_position' | 'has_clip',
+    callback: (value: any) => void
+  ): void {
+    let listenAddress: string;
+    let startCommand: string;
+
+    switch (property) {
+      case 'has_clip':
+        listenAddress = OSCCommands.GET_HAS_CLIP;
+        startCommand = OSCCommands.START_LISTEN_HAS_CLIP;
+        break;
+      case 'is_playing':
+        listenAddress = OSCCommands.GET_CLIP_IS_PLAYING;
+        startCommand = OSCCommands.START_LISTEN_CLIP_IS_PLAYING;
+        break;
+      case 'is_recording':
+        listenAddress = OSCCommands.GET_CLIP_IS_RECORDING;
+        startCommand = OSCCommands.START_LISTEN_CLIP_IS_RECORDING;
+        break;
+      case 'playing_position':
+        listenAddress = OSCCommands.GET_CLIP_PLAYING_POSITION;
+        startCommand = OSCCommands.START_LISTEN_CLIP_PLAYING_POSITION;
+        break;
+    }
+
+    const listener = (response: OSCResponse) => {
+      // Check if this response is for our specific clip
+      if (response.args[0] === trackIndex && response.args[1] === clipIndex) {
+        const value = response.args[2];
+        callback(value);
+      }
+    };
+
+    console.log(`📡 Setting up listener for clip ${trackIndex}:${clipIndex} property: ${property}`);
+    this.client.addOSCListener(listenAddress, listener);
+
+    // Send the start listen command
+    console.log(`📤 Sending START_LISTEN command for clip property ${property}`);
+    this.client.send(startCommand, trackIndex, clipIndex);
+  }
+
+  // Stop listening to clip property
+  public stopListenClipProperty(
+    trackIndex: number,
+    clipIndex: number,
+    property: 'is_playing' | 'is_recording' | 'playing_position' | 'has_clip'
+  ): void {
+    let stopCommand: string;
+
+    switch (property) {
+      case 'has_clip':
+        stopCommand = OSCCommands.STOP_LISTEN_HAS_CLIP;
+        break;
+      case 'is_playing':
+        stopCommand = OSCCommands.STOP_LISTEN_CLIP_IS_PLAYING;
+        break;
+      case 'is_recording':
+        stopCommand = OSCCommands.STOP_LISTEN_CLIP_IS_RECORDING;
+        break;
+      case 'playing_position':
+        stopCommand = OSCCommands.STOP_LISTEN_CLIP_PLAYING_POSITION;
+        break;
+    }
+
+    this.client.send(stopCommand, trackIndex, clipIndex);
+  }
 }
 

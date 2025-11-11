@@ -87,6 +87,9 @@ export class OSCClient extends EventEmitter {
       args,
     };
 
+    // Emit 'send' event for logging
+    this.emit('send', message);
+
     this.udpPort.send({
       address: message.address,
       args: message.args.map(arg => ({ type: this.getOSCType(arg), value: arg })),

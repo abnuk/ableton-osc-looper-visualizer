@@ -2,6 +2,8 @@ import { BrowserWindow } from 'electron';
 import Store from 'electron-store';
 import * as path from 'path';
 import { LooperInfo } from '../../shared/types/LooperState';
+import { ClipInfo } from '../../shared/types/ClipState';
+import { MonitoredItemType } from '../../shared/types/MonitoredItem';
 
 interface WindowState {
   x?: number;
@@ -10,6 +12,8 @@ interface WindowState {
   height: number;
   alwaysOnTop: boolean;
 }
+
+type MonitoredItem = LooperInfo | ClipInfo;
 
 export class VisualizationWindowManager {
   private windows: Map<string, BrowserWindow> = new Map();
@@ -21,18 +25,22 @@ export class VisualizationWindowManager {
     });
   }
 
-  public createWindow(looper: LooperInfo): BrowserWindow {
-    console.log(`🪟 Creating visualization window for ${looper.trackName} (${looper.id})`);
+  // Generic create window that works for both loopers and clips
+  public createWindow(item: MonitoredItem, itemType: MonitoredItemType = MonitoredItemType.LOOPER): BrowserWindow {
+    const displayName = this.getDisplayName(item, itemType);
+    const itemId = item.id;
     
-    const existingWindow = this.windows.get(looper.id);
+    console.log(`🪟 Creating visualization window for ${displayName} (${itemId})`);
+    
+    const existingWindow = this.windows.get(itemId);
     if (existingWindow) {
-      console.log(`⚠️ Window already exists for ${looper.id}, focusing...`);
+      console.log(`⚠️ Window already exists for ${itemId}, focusing...`);
       existingWindow.focus();
       return existingWindow;
     }
 
     // Load saved window state or use defaults
-    const savedState = this.store.get(`window-${looper.id}`) as WindowState | undefined;
+    const savedState = this.store.get(`window-${itemId}`) as WindowState | undefined;
     const windowState: WindowState = savedState || {
       width: 300,
       height: 350,
@@ -49,20 +57,13 @@ export class VisualizationWindowManager {
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
-        additionalArguments: [
-          `--looper-id=${looper.id}`,
-          `--track-name=${looper.trackName}`,
-          `--track-index=${looper.trackIndex}`,
-          `--device-index=${looper.deviceIndex}`,
-          `--track-color=${looper.trackColor}`,
-          `--always-on-top=${windowState.alwaysOnTop}`,
-        ],
+        additionalArguments: this.buildCommandLineArgs(item, itemType, windowState.alwaysOnTop),
       },
       backgroundColor: '#1a1a1a',
       frame: false, // Completely frameless - no system buttons at all
       transparent: false,
       hasShadow: true, // Add shadow for better visibility
-      title: `Looper - ${looper.trackName}`,
+      title: displayName,
       alwaysOnTop: windowState.alwaysOnTop,
       skipTaskbar: false, // Keep in taskbar/dock
       ...(process.platform === 'darwin' ? {
@@ -82,11 +83,6 @@ export class VisualizationWindowManager {
     const extraHeight = titleBarHeight + stateLabelHeight;
     
     // Set aspect ratio so canvas is square
-    // If we want canvas width = canvas height, then:
-    // width / (height - extraHeight) = 1
-    // width = height - extraHeight
-    // width / height = (height - extraHeight) / height = 1 - (extraHeight / height)
-    // For a 300px width, we want 300 / (300 + 69) ≈ 0.813
     const aspectRatio = windowState.width / (windowState.width + extraHeight);
     window.setAspectRatio(aspectRatio);
 
@@ -109,32 +105,64 @@ export class VisualizationWindowManager {
         height: bounds.height,
         alwaysOnTop: window.isAlwaysOnTop(),
       };
-      this.store.set(`window-${looper.id}`, state);
+      this.store.set(`window-${itemId}`, state);
     };
 
     window.on('move', saveWindowState);
     window.on('resize', saveWindowState);
 
     window.on('closed', () => {
-      console.log(`🗑️ Visualization window closed for ${looper.id}`);
-      this.windows.delete(looper.id);
+      console.log(`🗑️ Visualization window closed for ${itemId}`);
+      this.windows.delete(itemId);
     });
 
-    this.windows.set(looper.id, window);
-    console.log(`✅ Visualization window created successfully for ${looper.trackName}`);
+    this.windows.set(itemId, window);
+    console.log(`✅ Visualization window created successfully for ${displayName}`);
     return window;
   }
 
-  public getWindow(looperId: string): BrowserWindow | undefined {
-    return this.windows.get(looperId);
+  // Helper to get display name
+  private getDisplayName(item: MonitoredItem, itemType: MonitoredItemType): string {
+    if (itemType === MonitoredItemType.LOOPER) {
+      return `Looper - ${item.trackName}`;
+    } else {
+      const clipItem = item as ClipInfo;
+      return `Clip - ${item.trackName} - Scene ${clipItem.clipIndex + 1}`;
+    }
+  }
+
+  // Helper to build command line arguments
+  private buildCommandLineArgs(item: MonitoredItem, itemType: MonitoredItemType, alwaysOnTop: boolean): string[] {
+    const baseArgs = [
+      `--item-id=${item.id}`,
+      `--item-type=${itemType}`,
+      `--track-name=${item.trackName}`,
+      `--track-index=${item.trackIndex}`,
+      `--track-color=${item.trackColor}`,
+      `--always-on-top=${alwaysOnTop}`,
+    ];
+
+    if (itemType === MonitoredItemType.LOOPER) {
+      const looperItem = item as LooperInfo;
+      baseArgs.push(`--device-index=${looperItem.deviceIndex}`);
+    } else {
+      const clipItem = item as ClipInfo;
+      baseArgs.push(`--clip-index=${clipItem.clipIndex}`);
+    }
+
+    return baseArgs;
+  }
+
+  public getWindow(itemId: string): BrowserWindow | undefined {
+    return this.windows.get(itemId);
   }
 
   public getAllWindows(): Map<string, BrowserWindow> {
     return this.windows;
   }
 
-  public closeWindow(looperId: string): void {
-    const window = this.windows.get(looperId);
+  public closeWindow(itemId: string): void {
+    const window = this.windows.get(itemId);
     if (window) {
       window.close();
     }
@@ -145,8 +173,8 @@ export class VisualizationWindowManager {
     this.windows.clear();
   }
 
-  public setAlwaysOnTop(looperId: string, alwaysOnTop: boolean): void {
-    const window = this.windows.get(looperId);
+  public setAlwaysOnTop(itemId: string, alwaysOnTop: boolean): void {
+    const window = this.windows.get(itemId);
     if (window) {
       window.setAlwaysOnTop(alwaysOnTop);
       
@@ -159,7 +187,7 @@ export class VisualizationWindowManager {
         height: bounds.height,
         alwaysOnTop,
       };
-      this.store.set(`window-${looperId}`, state);
+      this.store.set(`window-${itemId}`, state);
     }
   }
 }

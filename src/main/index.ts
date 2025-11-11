@@ -6,9 +6,13 @@ import { OSCMessageHandler } from './osc-client/OSCMessageHandler';
 import { LooperDiscovery } from './looper-discovery/LooperDiscovery';
 import { LooperParameterMapper } from './looper-discovery/LooperParameterMapper';
 import { LooperStateManager } from './looper-state/LooperStateManager';
+import { ClipStateManager } from './state-management/ClipStateManager';
+import { TrackListProvider } from './discovery/TrackListProvider';
 import { TrayManager } from './tray/TrayManager';
 import { AppConfig, DEFAULT_CONFIG } from '../shared/types/AppConfig';
 import { LooperInfo } from '../shared/types/LooperState';
+import { ClipInfo } from '../shared/types/ClipState';
+import { MonitoredItemType } from '../shared/types/MonitoredItem';
 
 // Initialize electron-store for config persistence
 const store = new Store();
@@ -20,6 +24,8 @@ let oscHandler: OSCMessageHandler;
 let looperDiscovery: LooperDiscovery;
 let looperParameterMapper: LooperParameterMapper;
 let looperStateManager: LooperStateManager;
+let clipStateManager: ClipStateManager;
+let trackListProvider: TrackListProvider;
 let trayManager: TrayManager | undefined;
 
 function initializeApp() {
@@ -29,6 +35,7 @@ function initializeApp() {
   looperDiscovery = new LooperDiscovery(oscHandler);
   looperParameterMapper = new LooperParameterMapper(oscHandler);
   looperStateManager = new LooperStateManager(oscHandler, visualizationWindowManager);
+  clipStateManager = new ClipStateManager(oscHandler, visualizationWindowManager);
   trayManager = new TrayManager(configWindowManager, visualizationWindowManager);
 
   // Update tray menu when windows change
@@ -64,6 +71,11 @@ function setupIPCHandlers() {
       await oscHandler.connect(config.hostname, config.sendPort, config.receivePort);
       console.log('✅ OSC connected');
       
+      // Enable OSC logging to file for debugging
+      oscHandler.enableLogging();
+      const logPath = oscHandler.getLogFilePath();
+      console.log('📝 OSC event logging enabled:', logPath);
+      
       // Test the connection
       console.log('🧪 Testing connection...');
       const success = await oscHandler.getCommandBuilder().testConnection();
@@ -94,6 +106,7 @@ function setupIPCHandlers() {
   ipcMain.handle('disconnect-osc', async () => {
     await oscHandler.disconnect();
     looperStateManager.stopAllMonitoring();
+    clipStateManager.stopAllMonitoring();
     return true;
   });
 
@@ -104,6 +117,24 @@ function setupIPCHandlers() {
       return loopers;
     } catch (error: any) {
       console.error('Failed to find loopers:', error);
+      throw error;
+    }
+  });
+
+  // Get track list for clip selection
+  ipcMain.handle('get-track-list', async () => {
+    try {
+      // Initialize track list provider if not already done
+      if (!trackListProvider) {
+        trackListProvider = new TrackListProvider(oscHandler.getCommandBuilder());
+      }
+      
+      const tracks = await trackListProvider.getTrackList();
+      const numScenes = await trackListProvider.getNumScenes();
+      
+      return { tracks, numScenes };
+    } catch (error: any) {
+      console.error('Failed to get track list:', error);
       throw error;
     }
   });
@@ -127,7 +158,7 @@ function setupIPCHandlers() {
 
       // Create visualization windows and start monitoring
       for (const looper of loopers) {
-        visualizationWindowManager.createWindow(looper);
+        visualizationWindowManager.createWindow(looper, MonitoredItemType.LOOPER);
         looperStateManager.startMonitoring(looper, looperParameterMapper);
       }
 
@@ -138,16 +169,35 @@ function setupIPCHandlers() {
     }
   });
 
-  // Stop monitoring a looper
-  ipcMain.handle('stop-monitoring-looper', async (_event, looperId: string) => {
-    looperStateManager.stopMonitoring(looperId);
-    visualizationWindowManager.closeWindow(looperId);
+  // Start monitoring clips
+  ipcMain.handle('start-monitoring-clips', async (_event, clips: ClipInfo[]) => {
+    try {
+      // Create visualization windows and start monitoring
+      for (const clip of clips) {
+        visualizationWindowManager.createWindow(clip, MonitoredItemType.CLIP);
+        clipStateManager.startMonitoring(clip);
+      }
+
+      return true;
+    } catch (error: any) {
+      console.error('Failed to start monitoring clips:', error);
+      throw error;
+    }
+  });
+
+  // Stop monitoring a looper or clip
+  ipcMain.handle('stop-monitoring-looper', async (_event, itemId: string) => {
+    // Try to stop as looper first
+    looperStateManager.stopMonitoring(itemId);
+    // Also try as clip
+    clipStateManager.stopMonitoring(itemId);
+    visualizationWindowManager.closeWindow(itemId);
     return true;
   });
 
-  // Set always on top for visualization window
-  ipcMain.handle('set-always-on-top', async (_event, looperId: string, alwaysOnTop: boolean) => {
-    visualizationWindowManager.setAlwaysOnTop(looperId, alwaysOnTop);
+  // Set always on top for visualization window (works for both loopers and clips)
+  ipcMain.handle('set-always-on-top', async (_event, itemId: string, alwaysOnTop: boolean) => {
+    visualizationWindowManager.setAlwaysOnTop(itemId, alwaysOnTop);
     return true;
   });
 }
@@ -175,12 +225,16 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  // Cleanup
-  if (oscHandler) {
-    oscHandler.disconnect();
-  }
+  // Cleanup - stop monitoring BEFORE disconnecting OSC
   if (looperStateManager) {
     looperStateManager.stopAllMonitoring();
+  }
+  if (clipStateManager) {
+    clipStateManager.stopAllMonitoring();
+  }
+  if (oscHandler) {
+    oscHandler.disableLogging();
+    oscHandler.disconnect();
   }
 });
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { LooperState, LooperStateData } from '../../shared/types/LooperState';
+import { LooperStateData } from '../../shared/types/LooperState';
+import { MonitoredItemStateData, MonitoredItemType, MonitoredItemState } from '../../shared/types/MonitoredItem';
 import { CircularCanvas } from './CircularCanvas';
 import { AnimationController } from './AnimationController';
 import './styles.css';
@@ -41,17 +42,40 @@ function getContrastTextColor(abletonColor: number): string {
   return luminance > 0.5 ? '#000000' : '#ffffff';
 }
 
-// Parse looper info from command line arguments
-function getLooperInfo() {
+// Parse item info from command line arguments (works for both loopers and clips)
+function getItemInfo() {
   const args = process.argv;
-  const looperId = args.find(arg => arg.startsWith('--looper-id='))?.split('=')[1] || '';
-  const trackName = args.find(arg => arg.startsWith('--track-name='))?.split('=')[1] || 'Looper';
+  const itemId = args.find(arg => arg.startsWith('--item-id='))?.split('=')[1] || args.find(arg => arg.startsWith('--looper-id='))?.split('=')[1] || '';
+  const itemTypeStr = args.find(arg => arg.startsWith('--item-type='))?.split('=')[1];
+  const itemType = itemTypeStr === MonitoredItemType.CLIP ? MonitoredItemType.CLIP : MonitoredItemType.LOOPER;
+  const trackName = args.find(arg => arg.startsWith('--track-name='))?.split('=')[1] || 'Item';
   const trackIndex = parseInt(args.find(arg => arg.startsWith('--track-index='))?.split('=')[1] || '0');
-  const deviceIndex = parseInt(args.find(arg => arg.startsWith('--device-index='))?.split('=')[1] || '0');
   const trackColor = parseInt(args.find(arg => arg.startsWith('--track-color='))?.split('=')[1] || '0');
+  const clipIndex = parseInt(args.find(arg => arg.startsWith('--clip-index='))?.split('=')[1] || '0');
   const alwaysOnTop = args.find(arg => arg.startsWith('--always-on-top='))?.split('=')[1] === 'true';
 
-  return { looperId, trackName, trackIndex, deviceIndex, trackColor, alwaysOnTop };
+  // Build display name
+  let displayName = trackName;
+  if (itemType === MonitoredItemType.CLIP) {
+    displayName = `${trackName} - Scene ${clipIndex + 1}`;
+  }
+
+  return { itemId, itemType, trackName, displayName, trackIndex, trackColor, clipIndex, alwaysOnTop };
+}
+
+// Format state for display
+function formatStateForDisplay(state: MonitoredItemState): string {
+  const stateNames: { [key in MonitoredItemState]: string } = {
+    [MonitoredItemState.EMPTY]: 'EMPTY',
+    [MonitoredItemState.STOPPED]: 'STOPPED',
+    [MonitoredItemState.ARMED_RECORDING]: 'ARMED REC',
+    [MonitoredItemState.RECORDING]: 'RECORDING',
+    [MonitoredItemState.ARMED_STOPPING]: 'ARMED STOP',
+    [MonitoredItemState.PLAYING]: 'PLAYING',
+    [MonitoredItemState.ARMED_OVERDUB]: 'ARMED OD',
+    [MonitoredItemState.OVERDUBBING]: 'OVERDUBBING',
+  };
+  return stateNames[state] || state.replace(/_/g, ' ');
 }
 
 const LooperVisualization: React.FC = () => {
@@ -59,22 +83,28 @@ const LooperVisualization: React.FC = () => {
   const circularCanvasRef = useRef<CircularCanvas | null>(null);
   const animationControllerRef = useRef<AnimationController | null>(null);
   
-  const [looperInfo] = useState(getLooperInfo());
-  const [state, setState] = useState<LooperState>(LooperState.EMPTY);
-  const [alwaysOnTop, setAlwaysOnTop] = useState(looperInfo.alwaysOnTop); // Initialize from saved state
+  const [itemInfo] = useState(getItemInfo());
+  const [state, setState] = useState<MonitoredItemState>(MonitoredItemState.EMPTY);
+  const [position, setPosition] = useState<number>(0);
+  const [hasPosition, setHasPosition] = useState<boolean>(false);
+  const [alwaysOnTop, setAlwaysOnTop] = useState(itemInfo.alwaysOnTop); // Initialize from saved state
   
   // Use ref to hold current state for animation callback
-  const stateRef = useRef<LooperState>(state);
+  const stateRef = useRef<MonitoredItemState>(state);
+  const positionRef = useRef<number>(position);
+  const hasPositionRef = useRef<boolean>(hasPosition);
   
-  // Update ref when state changes
+  // Update refs when state changes
   useEffect(() => {
     stateRef.current = state;
-  }, [state]);
+    positionRef.current = position;
+    hasPositionRef.current = hasPosition;
+  }, [state, position, hasPosition]);
 
   // Apply track color to title bar and state label
   useEffect(() => {
-    const trackColor = abletonColorToRgb(looperInfo.trackColor);
-    const textColor = getContrastTextColor(looperInfo.trackColor);
+    const trackColor = abletonColorToRgb(itemInfo.trackColor);
+    const textColor = getContrastTextColor(itemInfo.trackColor);
     
     // Apply color to title bar and state label
     const titleBar = document.querySelector('.title-bar') as HTMLElement;
@@ -97,7 +127,7 @@ const LooperVisualization: React.FC = () => {
       stateLabel.style.backgroundColor = trackColor;
       stateLabel.style.color = textColor;
     }
-  }, [looperInfo.trackColor]);
+  }, [itemInfo.trackColor]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -105,30 +135,44 @@ const LooperVisualization: React.FC = () => {
     // Initialize canvas
     circularCanvasRef.current = new CircularCanvas(canvasRef.current);
 
-    // Initialize animation controller - simplified (no position)
+    // Initialize animation controller with position support
     animationControllerRef.current = new AnimationController((timestamp: number) => {
       if (circularCanvasRef.current) {
         const currentState = stateRef.current;
-        circularCanvasRef.current.render(currentState, timestamp);
+        const currentPosition = positionRef.current;
+        const currentHasPosition = hasPositionRef.current;
+        circularCanvasRef.current.render(currentState, timestamp, {
+          position: currentPosition,
+          hasPosition: currentHasPosition,
+        });
       }
     });
 
     // Start animation
     animationControllerRef.current.start();
 
-    // Listen for state updates
-        const handleStateUpdate = (_event: any, stateData: LooperStateData) => {
-          console.log('🎨 Renderer received state update:', {
-            looperId: stateData.looperId,
-            state: LooperState[stateData.state]
-          });
+    // Listen for unified item state updates
+    const handleItemStateUpdate = (_event: any, stateData: MonitoredItemStateData) => {
+      if (stateData.itemId === itemInfo.itemId) {
+        setState(stateData.state);
+        setPosition(stateData.position);
+        setHasPosition(stateData.hasPosition);
+      }
+    };
 
-          if (stateData.looperId === looperInfo.looperId) {
-            setState(stateData.state);
-          }
-        };
+    // Also listen for legacy looper-state-update for backward compatibility
+    const handleLooperStateUpdate = (_event: any, stateData: LooperStateData) => {
+      if (stateData.looperId === itemInfo.itemId) {
+        // Convert LooperState to MonitoredItemState
+        const looperState = stateData.state;
+        // Map enum value
+        const monitoredState = looperState as unknown as MonitoredItemState;
+        setState(monitoredState);
+      }
+    };
 
-    ipcRenderer.on('looper-state-update', handleStateUpdate);
+    ipcRenderer.on('item-state-update', handleItemStateUpdate);
+    ipcRenderer.on('looper-state-update', handleLooperStateUpdate);
 
     // Handle window resize
     const handleResize = () => {
@@ -140,7 +184,8 @@ const LooperVisualization: React.FC = () => {
     window.addEventListener('resize', handleResize);
 
     return () => {
-      ipcRenderer.removeListener('looper-state-update', handleStateUpdate);
+      ipcRenderer.removeListener('item-state-update', handleItemStateUpdate);
+      ipcRenderer.removeListener('looper-state-update', handleLooperStateUpdate);
       window.removeEventListener('resize', handleResize);
       
       if (animationControllerRef.current) {
@@ -151,24 +196,24 @@ const LooperVisualization: React.FC = () => {
         circularCanvasRef.current.destroy();
       }
     };
-  }, [looperInfo.looperId]);
+  }, [itemInfo.itemId]);
 
 
   const handleClose = () => {
-    ipcRenderer.invoke('stop-monitoring-looper', looperInfo.looperId);
+    ipcRenderer.invoke('stop-monitoring-looper', itemInfo.itemId);
     window.close();
   };
 
   const handleToggleAlwaysOnTop = () => {
     const newValue = !alwaysOnTop;
     setAlwaysOnTop(newValue);
-    ipcRenderer.invoke('set-always-on-top', looperInfo.looperId, newValue);
+    ipcRenderer.invoke('set-always-on-top', itemInfo.itemId, newValue);
   };
 
   return (
     <div className="visualization-window">
       <div className="title-bar">
-        <span className="track-name">{looperInfo.trackName}</span>
+        <span className="track-name">{itemInfo.displayName}</span>
         <div className="window-controls">
           <button
             className={`control-btn ${alwaysOnTop ? 'active' : ''}`}
@@ -190,7 +235,7 @@ const LooperVisualization: React.FC = () => {
         <canvas ref={canvasRef} className="looper-canvas" />
       </div>
       <div className="state-label">
-        {state.replace(/_/g, ' ')}
+        {formatStateForDisplay(state)}
       </div>
     </div>
   );

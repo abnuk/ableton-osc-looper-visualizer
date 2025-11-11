@@ -174,7 +174,7 @@ export class LooperStateManager {
 
       const stateData: LooperStateData = {
         looperId,
-        state: monitored.stateMachine.getState(),
+        state: monitored.stateMachine.getLooperState(),
         position: monitored.stateMachine.getStateData().position || 0,
         loopLength: monitored.stateMachine.getStateData().loopLength || 0,
         isQuantized: monitored.stateMachine.getStateData().isQuantized || true,
