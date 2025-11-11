@@ -1,0 +1,186 @@
+import { app, BrowserWindow, ipcMain } from 'electron';
+import Store from 'electron-store';
+import { ConfigWindowManager } from './windows/ConfigWindowManager';
+import { VisualizationWindowManager } from './windows/VisualizationWindowManager';
+import { OSCMessageHandler } from './osc-client/OSCMessageHandler';
+import { LooperDiscovery } from './looper-discovery/LooperDiscovery';
+import { LooperParameterMapper } from './looper-discovery/LooperParameterMapper';
+import { LooperStateManager } from './looper-state/LooperStateManager';
+import { TrayManager } from './tray/TrayManager';
+import { AppConfig, DEFAULT_CONFIG } from '../shared/types/AppConfig';
+import { LooperInfo } from '../shared/types/LooperState';
+
+// Initialize electron-store for config persistence
+const store = new Store();
+
+// Managers
+let configWindowManager: ConfigWindowManager;
+let visualizationWindowManager: VisualizationWindowManager;
+let oscHandler: OSCMessageHandler;
+let looperDiscovery: LooperDiscovery;
+let looperParameterMapper: LooperParameterMapper;
+let looperStateManager: LooperStateManager;
+let trayManager: TrayManager | undefined;
+
+function initializeApp() {
+  configWindowManager = new ConfigWindowManager();
+  visualizationWindowManager = new VisualizationWindowManager();
+  oscHandler = new OSCMessageHandler();
+  looperDiscovery = new LooperDiscovery(oscHandler);
+  looperParameterMapper = new LooperParameterMapper(oscHandler);
+  looperStateManager = new LooperStateManager(oscHandler, visualizationWindowManager);
+  trayManager = new TrayManager(configWindowManager, visualizationWindowManager);
+
+  // Update tray menu when windows change
+  setInterval(() => {
+    if (trayManager) {
+      trayManager.updateTrayMenu();
+    }
+  }, 5000);
+
+  setupIPCHandlers();
+}
+
+function setupIPCHandlers() {
+  console.log('🚀 Setting up IPC handlers...');
+  
+  // Get saved config
+  ipcMain.handle('get-config', async () => {
+    console.log('📥 IPC: get-config called');
+    return store.get('config', DEFAULT_CONFIG);
+  });
+
+  // Save config
+  ipcMain.handle('save-config', async (_event, config: AppConfig) => {
+    store.set('config', config);
+    return true;
+  });
+
+  // Connect to OSC
+  ipcMain.handle('connect-osc', async (_event, config: AppConfig) => {
+    console.log('📥 IPC: connect-osc received', config);
+    try {
+      console.log('🔌 Connecting to OSC...', config);
+      await oscHandler.connect(config.hostname, config.sendPort, config.receivePort);
+      console.log('✅ OSC connected');
+      
+      // Test the connection
+      console.log('🧪 Testing connection...');
+      const success = await oscHandler.getCommandBuilder().testConnection();
+      console.log('📡 Test result:', success);
+      
+      if (success) {
+        console.log('✅ Connection test passed');
+        const configWindow = configWindowManager.getWindow();
+        if (configWindow) {
+          configWindow.webContents.send('connection-status', {
+            connected: true,
+            testing: false,
+            error: null,
+          });
+        }
+      } else {
+        console.log('❌ Connection test failed');
+      }
+      
+      return success;
+    } catch (error: any) {
+      console.error('💥 Failed to connect:', error);
+      return false;
+    }
+  });
+
+  // Disconnect from OSC
+  ipcMain.handle('disconnect-osc', async () => {
+    await oscHandler.disconnect();
+    looperStateManager.stopAllMonitoring();
+    return true;
+  });
+
+  // Find loopers
+  ipcMain.handle('find-loopers', async () => {
+    try {
+      const loopers = await looperDiscovery.findLoopers();
+      return loopers;
+    } catch (error: any) {
+      console.error('Failed to find loopers:', error);
+      throw error;
+    }
+  });
+
+  // Research looper parameters (for debugging)
+  ipcMain.handle('research-looper', async (_event, looper: LooperInfo) => {
+    try {
+      await looperParameterMapper.researchLooperParameters(looper);
+      return looperParameterMapper.getParameterMappings(looper.id);
+    } catch (error: any) {
+      console.error('Failed to research looper:', error);
+      throw error;
+    }
+  });
+
+  // Start monitoring loopers
+  ipcMain.handle('start-monitoring-loopers', async (_event, loopers: LooperInfo[]) => {
+    try {
+      // Research parameters for all loopers first
+      await looperParameterMapper.getAllParameterMappings(loopers);
+
+      // Create visualization windows and start monitoring
+      for (const looper of loopers) {
+        visualizationWindowManager.createWindow(looper);
+        looperStateManager.startMonitoring(looper, looperParameterMapper);
+      }
+
+      return true;
+    } catch (error: any) {
+      console.error('Failed to start monitoring:', error);
+      throw error;
+    }
+  });
+
+  // Stop monitoring a looper
+  ipcMain.handle('stop-monitoring-looper', async (_event, looperId: string) => {
+    looperStateManager.stopMonitoring(looperId);
+    visualizationWindowManager.closeWindow(looperId);
+    return true;
+  });
+
+  // Set always on top for visualization window
+  ipcMain.handle('set-always-on-top', async (_event, looperId: string, alwaysOnTop: boolean) => {
+    visualizationWindowManager.setAlwaysOnTop(looperId, alwaysOnTop);
+    return true;
+  });
+}
+
+app.whenReady().then(() => {
+  console.log('🎬 Electron app is ready');
+  initializeApp();
+  console.log('✅ App initialized');
+  configWindowManager.createWindow();
+  console.log('🪟 Config window created');
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      configWindowManager.createWindow();
+    }
+  });
+});
+
+// On macOS, keep app running when all windows are closed
+app.on('window-all-closed', () => {
+  // Don't quit on macOS - app runs in tray
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('before-quit', () => {
+  // Cleanup
+  if (oscHandler) {
+    oscHandler.disconnect();
+  }
+  if (looperStateManager) {
+    looperStateManager.stopAllMonitoring();
+  }
+});
+
